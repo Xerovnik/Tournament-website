@@ -1,0 +1,524 @@
+<template>
+  <div class="detailsContainer">
+       <link rel="preconnect" href="https://fonts.gstatic.com">
+       <link href="https://fonts.googleapis.com/css2?family=Syncopate&display=swap" rel="stylesheet">
+
+
+
+
+    
+
+    <h1 v-if="status == 'Closed'" class='welcome'>Winner: {{winningUser}}</h1>
+
+
+    <brackets 
+    v-if="status != 'Upcoming'" 
+    v-bind:tournamentId="parseInt($route.params.id)"
+    v-bind:winnerName="winningUser"/>
+
+
+      <div id="inline" style="">
+      <div class="details">
+      <h3>Host:</h3>
+      <host v-bind:tournamentId="parseInt($route.params.id)" />
+      </div>
+
+      <div class="details">
+      <h3>Participants ({{maxParticipants}} Total Needed):</h3>
+      <participants v-bind:tournamentId="parseInt($route.params.id)" />
+      </div>
+
+      <div class="details">
+      <h3>Status:</h3>
+      <status v-bind:tournamentId="parseInt($route.params.id)" />
+      </div>
+
+      <div class="details">
+      <h3>Start Date:</h3>
+      <date v-bind:tournamentId="parseInt($route.params.id)" />
+      </div>
+
+      <div class="details">
+      <h3>End Date:</h3>
+      <endDate v-bind:tournamentId="parseInt($route.params.id)" />
+      </div>
+
+      <div class="details">
+      <br>
+      <button v-if="isHost && participants.length < maxParticipants && status == 'Upcoming'" class="myButton" id="startButton">
+        <router-link v-bind:to="{ name: 'invite-users'}">Invite Users</router-link>
+        </button>
+
+      </div>
+
+      <div class="details">
+      <button 
+      v-if="canJoin" 
+      :disabled='requested == "Join Requested" || requested == "Join Declined"'
+      v-on:click="sendInvite" class="myButton">
+        {{requested}}
+      </button>
+      </div>
+
+      <div class="details">
+      <button v-if="canLeave"
+      v-on:click="leaveTournament" class="myButton">
+        Leave Tournament
+      </button>
+
+          <button class="myButton" v-if="canStartTournament"
+    v-on:click="startTournament">
+      Start Tournament
+    </button>
+
+
+
+
+    <router-link v-bind:to="{ name: 'control-panel', params: {id: parseInt($route.params.id)}}">
+      <button v-if="this.isHost && this.status == 'Ongoing'" class="myButton">
+        Enter Results
+      </button>
+    </router-link>
+
+    <router-link v-bind:to="{ name: 'control-panel', params: {id: parseInt($route.params.id)}}">
+      <button v-if="this.isHost && this.status == 'Closed'" class="myButton">
+        View Results
+      </button>
+    </router-link>
+      </div>
+
+      </div>    
+      
+  </div>
+</template>
+
+<script>
+import Brackets from '../components/Brackets.vue'
+import Participants from '../components/Participants.vue'
+import Host from '../components/Host.vue'
+import Status from '../components/Status.vue'
+import Date from '../components/Date.vue'
+import endDate from '../components/EndDate.vue'
+import invitationService from '../services/InvitationService'
+import tournamentService from "@/services/TournamentService.js";
+
+export default {
+    
+  components:{
+      Brackets,
+      Participants,
+      Host,
+      Status,
+      Date,
+      endDate   
+  },
+  name: "tournament-details",
+  data() {
+    return {
+      buttonText: 'Join Tournament',
+      invites: [],
+      participants: [],
+      status: "",
+      tournamentId: Number,
+      maxParticipants: Number,
+      isHost: false,
+      tournament: Object,
+      matches: []
+    }
+  },
+  computed: {
+    winningUser() {
+      let winnerName = "";
+      if (this.maxParticipants == 2) {
+        this.matches.forEach( (match) => {
+          if (match.round == 1) {
+            winnerName = match.winner.displayName;
+          }
+        });
+      }
+      else if (this.maxParticipants == 4) {
+        this.matches.forEach( (match) => {
+          if (match.round == 2) {
+            winnerName = match.winner.displayName;
+          }
+        });
+      }
+      else if (this.maxParticipants == 8) {
+        this.matches.forEach( (match) => {
+          if (match.round == 3) {
+            winnerName = match.winner.displayName;
+          }
+        });
+      }
+      else if (this.maxParticipants == 16) {
+        this.matches.forEach( (match) => {
+          if (match.round == 4) {
+            winnerName = match.winner.displayName;
+          }
+        });
+      }
+
+      return winnerName;
+
+    },
+    canStartTournament() {
+      if (this.isHost && this.status == "Upcoming") {
+            return true;
+      }
+      return false;
+    },
+    canEnterResults() {
+      if (this.isHost && this.status != "Upcoming") {
+            return true;
+      }
+      return false;
+    },
+    canJoin() {
+      let bool = true; 
+      if (this.isHost) bool = false;
+      if (this.participants.length === this.maxParticipants) bool = false;
+      if (this.status != "Upcoming") bool = false;
+      this.participants.forEach( (participant) => {
+        if (participant.id === this.$store.state.user.id) {
+          console.log(participant.id);
+          bool = false;
+        }
+      });
+      return bool;
+    },
+    canLeave() {
+      let bool = false; 
+      if (this.status == "Upcoming") {
+        this.participants.forEach( (participant) => {
+        if (participant.id === this.$store.state.user.id) {
+          console.log(participant.id);
+          bool = true;
+        }
+        });
+      }
+      return bool;
+    },
+    requested() {
+      let text = "Join Tournament";
+      this.invites.forEach( (invite) => {
+        if (invite.participantId === this.$store.state.user.id) {
+          if (invite.status === "Pending") {
+            if (invite.sender === "Host") {
+              text = "You've been invited to this tournament (check inbox)"
+            }
+            else {
+              text =  "Join Requested";
+            }
+              
+          }
+          else if (invite.status === "Declined") {
+            if (invite.sender === "Host") {
+              text = "You declined the invitation"
+            }
+            else {
+              text = "Your request was declined"
+            }
+            
+          }
+        }
+      });
+      return text;
+    }
+  },
+  created() {
+    if (this.joined) {
+      this.buttonText = 'Join Requested';
+    }
+
+    invitationService.getInvitesByTournamentId(parseInt(this.$route.params.id)).then(
+      response => {
+        this.invites = response.data;
+      }
+    );
+
+    tournamentService.getTournamentById(parseInt(this.$route.params.id))
+      .then(response => {
+          this.tournament = response.data;
+          let tournament = response.data;
+          this.status = tournament.status;
+          this.participants = tournament.participants;
+          this.maxParticipants = tournament.maxParticipants
+          this.tournamentId = tournament.id;
+          this.maxParticipants = tournament.maxParticipants;
+          if(tournament.host_id == this.$store.state.user.id){
+            this.isHost = true;
+          }
+      });
+
+    tournamentService.getMatchesByTournamentId(parseInt(this.$route.params.id))
+        .then(response => {
+            this.matches = response.data;
+    });
+
+  },
+  methods: {
+    startTournament() {
+      if (this.participants.length != this.maxParticipants) {
+        alert("You need " + (this.maxParticipants - this.participants.length) +
+              " more participants to start this tournament");
+      }
+      else {
+        for (let i = 0; i < this.maxParticipants; i=i+2) {
+          // create match
+          let match = {
+            tournamentId: parseInt(this.$route.params.id),
+            participant1: {id: this.participants[i].id},
+            participant2: {id: this.participants[i + 1].id},
+            round: 1,
+            winner: null
+          };
+          console.log(match.participant1.id);
+
+          // add match
+          tournamentService.addMatch(match).then(response => {
+            if (response.status != 200 && response.status != 201) {
+              alert("There was an error");
+            }
+          });
+        }
+
+        if (this.maxParticipants == 4) {
+          // create one empty match
+          let match = {
+            tournamentId: parseInt(this.$route.params.id),
+            participant1: {id: 0},
+            participant2: {id: 0},
+            round: 2,
+            winner: null
+          };
+          // add match
+          tournamentService.addMatch(match).then(response => {
+            if (response.status != 200 && response.status != 201) {
+              alert("There was an error");
+            }
+          });
+        }
+
+        else if (this.maxParticipants == 8) {
+          // create three empty matches
+          for (let i = 0; i < 2; i++) {
+            let match = {
+              tournamentId: parseInt(this.$route.params.id),
+              participant1: {id: 0},
+              participant2: {id: 0},
+              round: 2,
+              winner: null
+            };
+            // add match
+            tournamentService.addMatch(match).then(response => {
+              if (response.status != 200 && response.status != 201) {
+                alert("There was an error");
+              }
+            });
+          }
+          let match = {
+            tournamentId: parseInt(this.$route.params.id),
+            participant1: {id: 0},
+            participant2: {id: 0},
+            round: 3,
+            winner: null
+          };
+          // add match
+          tournamentService.addMatch(match).then(response => {
+            if (response.status != 200 && response.status != 201) {
+              alert("There was an error");
+            }
+          });
+        }
+
+        else if (this.maxParticipants == 16) {
+          // create three empty matches
+          for (let i = 0; i < 4; i++) {
+            let match = {
+              tournamentId: parseInt(this.$route.params.id),
+              participant1: {id: 0},
+              participant2: {id: 0},
+              round: 2,
+              winner: null
+            };
+            // add match
+            tournamentService.addMatch(match).then(response => {
+              if (response.status != 200 && response.status != 201) {
+                alert("There was an error");
+              }
+            });
+          }
+          for (let i = 0; i < 2; i++) {
+            let match = {
+              tournamentId: parseInt(this.$route.params.id),
+              participant1: {id: 0},
+              participant2: {id: 0},
+              round: 3,
+              winner: null
+            };
+            // add match
+            tournamentService.addMatch(match).then(response => {
+              if (response.status != 200 && response.status != 201) {
+                alert("There was an error");
+              }
+            });
+          }
+
+          let match = {
+            tournamentId: parseInt(this.$route.params.id),
+            participant1: {id: 0},
+            participant2: {id: 0},
+            round: 4,
+            winner: null
+          };
+          // add match
+          tournamentService.addMatch(match).then(response => {
+            if (response.status != 200 && response.status != 201) {
+              alert("There was an error");
+            }
+          });
+        }
+
+        // change tournament to ongoing and change date if needed
+        let newStartDate = new window.Date(); 
+        newStartDate = this.formatDate(newStartDate);
+        let newTournament = this.tournament;
+        newTournament.status = "Ongoing";
+        newTournament.startDate = newStartDate;
+        newTournament.participants = [];
+        tournamentService.editTournament(newTournament).then(response => {
+          if (response.status != 200 && response.status != 201) {
+              alert("There was an error");
+          }
+          else {
+            alert("Tournament Started!");
+            this.$router.go();
+          }
+        })
+        .catch (error => {
+          if (error.response) console.log(error.response);
+          else if (error.request) console.log(error.request);
+        })
+      }
+      
+    },
+    sendInvite() {
+      let request = {tournamentId:this.tournamentId, participantId: this.$store.state.user.id, sender: "Participant"};
+      invitationService.sendInvite(request).then(response => {
+        if (response.status == 200 || response.status == 201) {
+            alert("Request Sent");
+            this.$router.go();
+          }
+          
+      })
+      .catch(error => {
+          console.error(error);
+      });
+    },
+    leaveTournament() {
+      let re = confirm("Are you sure you want to leave this tournament?");
+      if (re) {
+        tournamentService.removeParticipant(this.$store.state.user.id, this.tournamentId).
+        then(response => {
+          if (response.status === 200) {
+            alert("You have left this tournament");
+            this.$router.go();
+          }
+          else {
+            alert("Deletion Error");
+          }
+        });
+      }
+    },
+    formatDate(date) {
+      var d = new window.Date(date),
+          month = '' + (d.getMonth() + 1),
+          day = '' + d.getDate(),
+          year = d.getFullYear();
+
+      if (month.length < 2) 
+          month = '0' + month;
+      if (day.length < 2) 
+          day = '0' + day;
+
+      return [year, month, day].join('-');
+    }
+  }
+}
+
+</script>
+
+
+
+
+
+
+<style scoped>
+    body{
+        background-color:darkgray;
+    }
+    .detailsContainer{
+      font-family: 'Syncopate', sans-serif;
+      font-size: 14px
+    }
+    .detailsContainer h3{
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      font-size: 22px
+    }
+
+.welcome {
+  background: radial-gradient(circle, #0a0a0a 0%, #dac403 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: animatedGradient 2s infinite ease;
+  animation-direction: alternate;
+}
+
+@keyframes animatedGradient {
+  from {
+    background-size: 100%;
+  }
+
+  to {
+    background-size: 250%;
+  }
+}
+    
+    .details{
+      vertical-align: top;
+      display:inline-block;
+      
+      
+      
+      
+
+      padding:4rem;
+    }
+    #inline{
+      display: flex;
+      background-color: rgb(255, 255, 255, 85%);
+      width:100%;
+      height:26.1rem;
+      align-content: center;
+      justify-content: center;
+      justify-items:legacy;
+
+    }
+
+    #inline> div:nth-child(odd){
+      border-left:rgb(206, 206, 206) solid 1px;
+    }
+    #inline> div:nth-child(even){
+      border-left:rgb(206, 206, 206) solid 1px;
+    }
+
+    #inline >div:first-child{
+      border-left:0px;
+    }
+
+    #inline> div{
+      overflow:auto;
+    }
+</style>
